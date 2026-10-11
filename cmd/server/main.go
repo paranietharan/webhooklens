@@ -25,7 +25,7 @@ func main() {
 
 	log.Printf("[server] initializing WebHookLens API on port %s", cfg.Port)
 
-	// 1. Initialize PostgreSQL store
+	// Initialize PostgreSQL store
 	pgStore, err := postgres.New(ctx, cfg.DatabaseURL)
 	if err != nil {
 		log.Fatalf("[server] fatal: failed to initialize database: %v", err)
@@ -33,7 +33,7 @@ func main() {
 	defer pgStore.Close()
 	log.Println("[server] connected to PostgreSQL and verified schema")
 
-	// 2. Initialize Redis cache and pub/sub
+	// Initialize Redis cache and pub/sub
 	redisCache, err := cache.NewRedisCache(ctx, cfg.RedisURL)
 	if err != nil {
 		log.Fatalf("[server] fatal: failed to initialize redis: %v", err)
@@ -41,11 +41,11 @@ func main() {
 	defer redisCache.Close()
 	log.Println("[server] connected to Redis")
 
-	// 3. Initialize and start the ingestion worker pool
+	// Initialize and start the ingestion worker pool
 	workerPool := worker.NewPool(pgStore, redisCache, cfg.WorkerPoolSize, cfg.WorkerBufferSize)
 	workerPool.Start()
 
-	// 4. Initialize HTTP router
+	// Initialize HTTP router
 	router := api.NewRouter(api.RouterDependencies{
 		Store:      pgStore,
 		Cache:      redisCache,
@@ -61,7 +61,7 @@ func main() {
 		IdleTimeout:  120 * time.Second,
 	}
 
-	// 5. Start HTTP server in a separate goroutine
+	// Start HTTP server in a separate goroutine
 	serverErrCh := make(chan error, 1)
 	go func() {
 		log.Printf("[server] WebHookLens API listening at http://localhost:%s", cfg.Port)
@@ -70,7 +70,7 @@ func main() {
 		}
 	}()
 
-	// 6. Wait for termination signal or server error
+	// Wait for termination signal or server error
 	select {
 	case <-ctx.Done():
 		log.Println("[server] shutdown signal received, initiating graceful termination...")
@@ -78,7 +78,7 @@ func main() {
 		log.Fatalf("[server] HTTP server crashed: %v", err)
 	}
 
-	// 7. Graceful shutdown sequence
+	// Graceful shutdown sequence
 	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancelShutdown()
 

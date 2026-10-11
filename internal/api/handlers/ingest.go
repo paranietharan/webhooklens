@@ -43,7 +43,7 @@ func (h *IngestionHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 1. Check endpoint validity and configuration via Redis cache / DB fallback
+	// Check endpoint validity and configuration via Redis cache / DB fallback
 	epConfig, err := h.getEndpointConfig(r.Context(), endpointID)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
@@ -59,7 +59,7 @@ func (h *IngestionHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. Validate Authorization if require_auth is enabled
+	// Validate Authorization if require_auth is enabled
 	if epConfig.RequireAuth {
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
@@ -80,7 +80,7 @@ func (h *IngestionHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 3. Enforce MaxBytesReader (5 MB limit)
+	// Enforce MaxBytesReader (5 MB limit)
 	maxBytes := h.cfg.MaxRequestBodyMB << 20
 	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
 
@@ -95,7 +95,7 @@ func (h *IngestionHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 4. Capture metadata
+	// Capture metadata
 	headersJSON, _ := json.Marshal(extractHeaders(r.Header))
 	queryParamsJSON, _ := json.Marshal(extractQueryParams(r.URL.Query()))
 	clientIP := getClientIP(r)
@@ -126,7 +126,7 @@ func (h *IngestionHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 		ReceivedAt:  now,
 	}
 
-	// 5. Pass payload to asynchronous worker pool
+	// Pass payload to asynchronous worker pool
 	enqueued := h.workerPool.Enqueue(&worker.IngestionJob{
 		Log:   webhookLog,
 		Event: webhookEvent,
@@ -136,7 +136,7 @@ func (h *IngestionHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 6. Return 202 Accepted immediately upon successful validation
+	// Return 202 Accepted immediately upon successful validation
 	respondJSON(w, http.StatusAccepted, map[string]any{
 		"status":      "accepted",
 		"id":          logID,

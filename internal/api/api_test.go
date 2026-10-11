@@ -75,7 +75,7 @@ func TestUserRegistrationAndLogin(t *testing.T) {
 	testEmail := fmt.Sprintf("dev_%d@example.com", time.Now().UnixNano())
 	testPassword := "securePassword123!"
 
-	// 1. Register
+	// Register
 	regBody, _ := json.Marshal(map[string]string{
 		"email":    testEmail,
 		"password": testPassword,
@@ -100,7 +100,7 @@ func TestUserRegistrationAndLogin(t *testing.T) {
 		t.Fatal("expected non-empty JWT token")
 	}
 
-	// 2. Login
+	// Login
 	loginBody, _ := json.Marshal(map[string]string{
 		"email":    testEmail,
 		"password": testPassword,
@@ -114,7 +114,7 @@ func TestUserRegistrationAndLogin(t *testing.T) {
 		t.Fatalf("login failed: expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	// 3. /api/auth/me
+	// /api/auth/me
 	req = httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
 	req.Header.Set("Authorization", "Bearer "+regResp.Token)
 	rec = httptest.NewRecorder()
@@ -146,7 +146,7 @@ func TestEndpointManagementAndTokenRegeneration(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &regResp)
 	token := regResp.Token
 
-	// 1. Create Endpoint
+	// Create Endpoint
 	createBody, _ := json.Marshal(map[string]any{
 		"name":         "GitHub Webhooks",
 		"require_auth": true,
@@ -174,7 +174,7 @@ func TestEndpointManagementAndTokenRegeneration(t *testing.T) {
 
 	originalAuthToken := *createdEndpoint.AuthToken
 
-	// 2. Regenerate Token
+	// Regenerate Token
 	req = httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/endpoints/%s/regenerate-token", createdEndpoint.ID), nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec = httptest.NewRecorder()
@@ -191,7 +191,7 @@ func TestEndpointManagementAndTokenRegeneration(t *testing.T) {
 		t.Fatal("regenerated auth token should be different from original token")
 	}
 
-	// 3. Toggle require_auth to false
+	// Toggle require_auth to false
 	toggleBody, _ := json.Marshal(map[string]bool{"require_auth": false})
 	req = httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/endpoints/%s/toggle-auth", createdEndpoint.ID), bytes.NewReader(toggleBody))
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -245,7 +245,7 @@ func TestWebhookIngestionAndWorkerProcessing(t *testing.T) {
 
 	webhookPayload := `{"event":"payment.succeeded","amount":4900,"currency":"usd"}`
 
-	// 1. Unauthorized request (missing header)
+	// Unauthorized request (missing header)
 	req = httptest.NewRequest(http.MethodPost, fmt.Sprintf("/w/%s", ep.ID), strings.NewReader(webhookPayload))
 	rec = httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -253,7 +253,7 @@ func TestWebhookIngestionAndWorkerProcessing(t *testing.T) {
 		t.Fatalf("expected 401 Unauthorized for missing auth, got %d", rec.Code)
 	}
 
-	// 2. Unauthorized request (wrong token)
+	// Unauthorized request (wrong token)
 	req = httptest.NewRequest(http.MethodPost, fmt.Sprintf("/w/%s", ep.ID), strings.NewReader(webhookPayload))
 	req.Header.Set("Authorization", "Bearer invalid-token-xyz")
 	rec = httptest.NewRecorder()
@@ -262,7 +262,7 @@ func TestWebhookIngestionAndWorkerProcessing(t *testing.T) {
 		t.Fatalf("expected 401 Unauthorized for invalid token, got %d", rec.Code)
 	}
 
-	// 3. Authorized request -> 202 Accepted
+	// Authorized request -> 202 Accepted
 	req = httptest.NewRequest(http.MethodPost, fmt.Sprintf("/w/%s?source=test", ep.ID), strings.NewReader(webhookPayload))
 	req.Header.Set("Authorization", "Bearer "+authToken)
 	req.Header.Set("Content-Type", "application/json")

@@ -78,13 +78,13 @@ func (p *Pool) processJob(job *IngestionJob) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// 1. Insert webhook log into PostgreSQL
+	// Insert webhook log into PostgreSQL
 	if err := p.store.WebhookLogs().Create(ctx, job.Log); err != nil {
 		log.Printf("[worker] error saving webhook log %s to postgres: %v", job.Log.ID, err)
 		return
 	}
 
-	// 2. Publish to Redis Pub/Sub on channel endpoint:{endpoint_id}
+	// Publish to Redis Pub/Sub on channel endpoint:{endpoint_id}
 	if err := p.cache.PublishWebhookEvent(ctx, job.Log.EndpointID, job.Event); err != nil {
 		log.Printf("[worker] error publishing webhook event %s to redis pubsub: %v", job.Log.ID, err)
 	}
