@@ -13,6 +13,7 @@ import (
 	"webhooklens/internal/api"
 	"webhooklens/internal/cache"
 	"webhooklens/internal/config"
+	"webhooklens/internal/mailer"
 	"webhooklens/internal/store/postgres"
 	"webhooklens/internal/worker"
 )
@@ -41,6 +42,9 @@ func main() {
 	defer redisCache.Close()
 	log.Println("[server] connected to Redis")
 
+	// Initialize mailer service
+	mailService := mailer.New(cfg)
+
 	// Initialize and start the ingestion worker pool
 	workerPool := worker.NewPool(pgStore, redisCache, cfg.WorkerPoolSize, cfg.WorkerBufferSize)
 	workerPool.Start()
@@ -51,6 +55,7 @@ func main() {
 		Cache:      redisCache,
 		WorkerPool: workerPool,
 		Config:     cfg,
+		Mailer:     mailService,
 	})
 
 	srv := &http.Server{

@@ -9,9 +9,20 @@ import (
 
 type User struct {
 	ID           uuid.UUID `json:"id"`
+	FirstName    string    `json:"first_name"`
+	LastName     string    `json:"last_name"`
 	Email        string    `json:"email"`
 	PasswordHash string    `json:"-"`
+	IsVerified   bool      `json:"is_verified"`
 	CreatedAt    time.Time `json:"created_at"`
+}
+
+type EmailVerification struct {
+	ID        uuid.UUID `json:"id"`
+	UserID    uuid.UUID `json:"user_id"`
+	Token     string    `json:"token"`
+	ExpiresAt time.Time `json:"expires_at"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type Endpoint struct {

@@ -16,6 +16,10 @@ type Config struct {
 	WorkerBufferSize  int
 	MaxRequestBodyMB  int64
 	CacheTTL          time.Duration
+	SMTPHost          string
+	SMTPPort          int
+	SMTPFrom          string
+	AppBaseURL        string
 }
 
 func Load() *Config {
@@ -29,6 +33,10 @@ func Load() *Config {
 		WorkerBufferSize: getIntEnv("WORKER_BUFFER_SIZE", 5000),
 		MaxRequestBodyMB: int64(getIntEnv("MAX_REQUEST_BODY_MB", 5)),
 		CacheTTL:         getDurationEnv("ENDPOINT_CACHE_TTL_MINUTES", 5) * time.Minute,
+		SMTPHost:         getEnv("SMTP_HOST", "localhost"),
+		SMTPPort:         getIntEnv("SMTP_PORT", 1025),
+		SMTPFrom:         getEnv("SMTP_FROM", "noreply@webhooklens.local"),
+		AppBaseURL:       getEnv("APP_BASE_URL", "http://localhost:8080"),
 	}
 }
 

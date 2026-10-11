@@ -16,6 +16,7 @@ import (
 	"webhooklens/internal/api"
 	"webhooklens/internal/cache"
 	"webhooklens/internal/config"
+	"webhooklens/internal/mailer"
 	"webhooklens/internal/models"
 	"webhooklens/internal/store/postgres"
 	"webhooklens/internal/worker"
@@ -40,14 +41,61 @@ func setupTestApp(t *testing.T) (http.Handler, *postgres.PostgresStore, *cache.R
 	workerPool := worker.NewPool(pgStore, redisCache, 5, 100)
 	workerPool.Start()
 
+	mailService := mailer.New(cfg)
+
 	router := api.NewRouter(api.RouterDependencies{
 		Store:      pgStore,
 		Cache:      redisCache,
 		WorkerPool: workerPool,
 		Config:     cfg,
+		Mailer:     mailService,
 	})
 
 	return router, pgStore, redisCache, workerPool, cfg
+}
+
+func createVerifiedUser(t *testing.T, router http.Handler, pgStore *postgres.PostgresStore, email, password string) string {
+	regBody, _ := json.Marshal(map[string]string{
+		"first_name": "Test",
+		"last_name":  "User",
+		"email":      email,
+		"password":   password,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/register", bytes.NewReader(regBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("failed to register user: %d %s", rec.Code, rec.Body.String())
+	}
+
+	var regResp struct {
+		User *models.User `json:"user"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &regResp)
+	if err := pgStore.Users().SetVerified(context.Background(), regResp.User.ID); err != nil {
+		t.Fatalf("failed to set verified: %v", err)
+	}
+
+	loginBody, _ := json.Marshal(map[string]string{
+		"email":    email,
+		"password": password,
+	})
+	req = httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewReader(loginBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("failed to login: %d %s", rec.Code, rec.Body.String())
+	}
+
+	var loginResp struct {
+		Token string `json:"token"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &loginResp)
+	return loginResp.Token
 }
 
 func TestHealthCheck(t *testing.T) {
@@ -66,7 +114,7 @@ func TestHealthCheck(t *testing.T) {
 	}
 }
 
-func TestUserRegistrationAndLogin(t *testing.T) {
+func TestUserRegistrationAndEmailVerification(t *testing.T) {
 	router, pgStore, redisCache, workerPool, _ := setupTestApp(t)
 	defer pgStore.Close()
 	defer redisCache.Close()
@@ -75,10 +123,12 @@ func TestUserRegistrationAndLogin(t *testing.T) {
 	testEmail := fmt.Sprintf("dev_%d@example.com", time.Now().UnixNano())
 	testPassword := "securePassword123!"
 
-	// Register
+	// 1. Register with first name, last name, email, password
 	regBody, _ := json.Marshal(map[string]string{
-		"email":    testEmail,
-		"password": testPassword,
+		"first_name": "Alice",
+		"last_name":  "Smith",
+		"email":      testEmail,
+		"password":   testPassword,
 	})
 	req := httptest.NewRequest(http.MethodPost, "/api/auth/register", bytes.NewReader(regBody))
 	req.Header.Set("Content-Type", "application/json")
@@ -90,17 +140,21 @@ func TestUserRegistrationAndLogin(t *testing.T) {
 	}
 
 	var regResp struct {
-		Token string       `json:"token"`
-		User  *models.User `json:"user"`
+		Message string       `json:"message"`
+		User    *models.User `json:"user"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &regResp); err != nil {
 		t.Fatalf("failed to unmarshal register response: %v", err)
 	}
-	if regResp.Token == "" {
-		t.Fatal("expected non-empty JWT token")
+
+	if regResp.User.FirstName != "Alice" || regResp.User.LastName != "Smith" {
+		t.Fatalf("expected name Alice Smith, got %s %s", regResp.User.FirstName, regResp.User.LastName)
+	}
+	if regResp.User.IsVerified {
+		t.Fatal("expected newly registered user to be unverified")
 	}
 
-	// Login
+	// 2. Attempt login before email verification -> expect 403 Forbidden
 	loginBody, _ := json.Marshal(map[string]string{
 		"email":    testEmail,
 		"password": testPassword,
@@ -110,18 +164,58 @@ func TestUserRegistrationAndLogin(t *testing.T) {
 	rec = httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("login failed: expected 200, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for unverified login, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	// /api/auth/me
+	// Resend verification
+	resendBody, _ := json.Marshal(map[string]string{"email": testEmail})
+	req = httptest.NewRequest(http.MethodPost, "/api/auth/resend-verification", bytes.NewReader(resendBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("resend verification failed: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Mark verified
+	if err := pgStore.Users().SetVerified(context.Background(), regResp.User.ID); err != nil {
+		t.Fatalf("failed to verify user: %v", err)
+	}
+
+	// 4. Login after verification -> expect 200 OK
+	req = httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewReader(loginBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("login failed after verification: expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var loginResp struct {
+		Token string       `json:"token"`
+		User  *models.User `json:"user"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &loginResp)
+	if loginResp.Token == "" {
+		t.Fatal("expected non-empty token")
+	}
+
+	// 5. /api/auth/me
 	req = httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
-	req.Header.Set("Authorization", "Bearer "+regResp.Token)
+	req.Header.Set("Authorization", "Bearer "+loginResp.Token)
 	rec = httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("me endpoint failed: expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var me models.User
+	_ = json.Unmarshal(rec.Body.Bytes(), &me)
+	if me.FirstName != "Alice" || me.LastName != "Smith" || !me.IsVerified {
+		t.Fatalf("expected verified Alice Smith, got %+v", me)
 	}
 }
 
@@ -132,28 +226,16 @@ func TestEndpointManagementAndTokenRegeneration(t *testing.T) {
 	defer workerPool.Stop(context.Background())
 
 	testEmail := fmt.Sprintf("ep_dev_%d@example.com", time.Now().UnixNano())
-	regBody, _ := json.Marshal(map[string]string{
-		"email":    testEmail,
-		"password": "strongPassword123!",
-	})
-	req := httptest.NewRequest(http.MethodPost, "/api/auth/register", bytes.NewReader(regBody))
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	var regResp struct {
-		Token string `json:"token"`
-	}
-	_ = json.Unmarshal(rec.Body.Bytes(), &regResp)
-	token := regResp.Token
+	token := createVerifiedUser(t, router, pgStore, testEmail, "strongPassword123!")
 
 	// Create Endpoint
 	createBody, _ := json.Marshal(map[string]any{
 		"name":         "GitHub Webhooks",
 		"require_auth": true,
 	})
-	req = httptest.NewRequest(http.MethodPost, "/api/endpoints", bytes.NewReader(createBody))
+	req := httptest.NewRequest(http.MethodPost, "/api/endpoints", bytes.NewReader(createBody))
 	req.Header.Set("Authorization", "Bearer "+token)
-	rec = httptest.NewRecorder()
+	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusCreated {
@@ -215,28 +297,16 @@ func TestWebhookIngestionAndWorkerProcessing(t *testing.T) {
 	defer workerPool.Stop(context.Background())
 
 	testEmail := fmt.Sprintf("ingest_%d@example.com", time.Now().UnixNano())
-	regBody, _ := json.Marshal(map[string]string{
-		"email":    testEmail,
-		"password": "strongPassword123!",
-	})
-	req := httptest.NewRequest(http.MethodPost, "/api/auth/register", bytes.NewReader(regBody))
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	var regResp struct {
-		Token string `json:"token"`
-	}
-	_ = json.Unmarshal(rec.Body.Bytes(), &regResp)
-	token := regResp.Token
+	token := createVerifiedUser(t, router, pgStore, testEmail, "strongPassword123!")
 
 	// Create endpoint with require_auth = true
 	createBody, _ := json.Marshal(map[string]any{
 		"name":         "Stripe Webhook Receiver",
 		"require_auth": true,
 	})
-	req = httptest.NewRequest(http.MethodPost, "/api/endpoints", bytes.NewReader(createBody))
+	req := httptest.NewRequest(http.MethodPost, "/api/endpoints", bytes.NewReader(createBody))
 	req.Header.Set("Authorization", "Bearer "+token)
-	rec = httptest.NewRecorder()
+	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
 	var ep models.Endpoint
@@ -312,28 +382,16 @@ func TestMaxBytesLimitEnforcement(t *testing.T) {
 	defer redisCache.Close()
 	defer workerPool.Stop(context.Background())
 
-	// Create open endpoint
 	testEmail := fmt.Sprintf("limit_%d@example.com", time.Now().UnixNano())
-	regBody, _ := json.Marshal(map[string]string{
-		"email":    testEmail,
-		"password": "strongPassword123!",
-	})
-	req := httptest.NewRequest(http.MethodPost, "/api/auth/register", bytes.NewReader(regBody))
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	var regResp struct {
-		Token string `json:"token"`
-	}
-	_ = json.Unmarshal(rec.Body.Bytes(), &regResp)
+	token := createVerifiedUser(t, router, pgStore, testEmail, "strongPassword123!")
 
 	createBody, _ := json.Marshal(map[string]any{
 		"name":         "Large Payload Endpoint",
 		"require_auth": false,
 	})
-	req = httptest.NewRequest(http.MethodPost, "/api/endpoints", bytes.NewReader(createBody))
-	req.Header.Set("Authorization", "Bearer "+regResp.Token)
-	rec = httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/endpoints", bytes.NewReader(createBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
 	var ep models.Endpoint
@@ -357,28 +415,16 @@ func TestRealTimeSSEStream(t *testing.T) {
 	defer workerPool.Stop(context.Background())
 
 	testEmail := fmt.Sprintf("sse_%d@example.com", time.Now().UnixNano())
-	regBody, _ := json.Marshal(map[string]string{
-		"email":    testEmail,
-		"password": "strongPassword123!",
-	})
-	req := httptest.NewRequest(http.MethodPost, "/api/auth/register", bytes.NewReader(regBody))
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	var regResp struct {
-		Token string `json:"token"`
-	}
-	_ = json.Unmarshal(rec.Body.Bytes(), &regResp)
-	token := regResp.Token
+	token := createVerifiedUser(t, router, pgStore, testEmail, "strongPassword123!")
 
 	// Create endpoint
 	createBody, _ := json.Marshal(map[string]any{
 		"name":         "SSE Stream Test",
 		"require_auth": false,
 	})
-	req = httptest.NewRequest(http.MethodPost, "/api/endpoints", bytes.NewReader(createBody))
+	req := httptest.NewRequest(http.MethodPost, "/api/endpoints", bytes.NewReader(createBody))
 	req.Header.Set("Authorization", "Bearer "+token)
-	rec = httptest.NewRecorder()
+	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
 	var ep models.Endpoint

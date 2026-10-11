@@ -9,9 +9,11 @@ import (
 )
 
 var (
-	ErrNotFound       = errors.New("resource not found")
-	ErrDuplicateEmail = errors.New("email already registered")
-	ErrDuplicateToken = errors.New("token already exists")
+	ErrNotFound            = errors.New("resource not found")
+	ErrDuplicateEmail      = errors.New("email already registered")
+	ErrDuplicateToken      = errors.New("token already exists")
+	ErrTokenExpired        = errors.New("verification token has expired")
+	ErrUserAlreadyVerified = errors.New("user is already verified")
 )
 
 type Store interface {
@@ -26,6 +28,11 @@ type UserStore interface {
 	Create(ctx context.Context, user *models.User) error
 	GetByEmail(ctx context.Context, email string) (*models.User, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*models.User, error)
+	SetVerified(ctx context.Context, userID uuid.UUID) error
+	CreateEmailVerification(ctx context.Context, ev *models.EmailVerification) error
+	GetEmailVerificationByToken(ctx context.Context, token string) (*models.EmailVerification, error)
+	DeleteEmailVerification(ctx context.Context, token string) error
+	DeleteEmailVerificationsByUserID(ctx context.Context, userID uuid.UUID) error
 }
 
 type EndpointStore interface {

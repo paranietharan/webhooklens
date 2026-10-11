@@ -12,6 +12,7 @@ import (
 	"webhooklens/internal/api/middleware"
 	"webhooklens/internal/cache"
 	"webhooklens/internal/config"
+	"webhooklens/internal/mailer"
 	"webhooklens/internal/store"
 	"webhooklens/internal/worker"
 )
@@ -21,6 +22,7 @@ type RouterDependencies struct {
 	Cache      cache.Cache
 	WorkerPool *worker.Pool
 	Config     *config.Config
+	Mailer     mailer.Mailer
 }
 
 func NewRouter(deps RouterDependencies) http.Handler {
@@ -64,7 +66,7 @@ func NewRouter(deps RouterDependencies) http.Handler {
 	})
 
 	// Handlers
-	authHandler := handlers.NewAuthHandler(deps.Store, deps.Config)
+	authHandler := handlers.NewAuthHandler(deps.Store, deps.Config, deps.Mailer)
 	endpointHandler := handlers.NewEndpointHandler(deps.Store, deps.Cache, deps.Config)
 	ingestionHandler := handlers.NewIngestionHandler(deps.Store, deps.Cache, deps.WorkerPool, deps.Config)
 	streamHandler := handlers.NewStreamHandler(deps.Store, deps.Cache, deps.Config)
@@ -80,6 +82,8 @@ func NewRouter(deps RouterDependencies) http.Handler {
 		// Public Auth Routes
 		api.Route("/auth", func(auth chi.Router) {
 			auth.Post("/register", authHandler.Register)
+			auth.Get("/verify-email", authHandler.VerifyEmail)
+			auth.Post("/resend-verification", authHandler.ResendVerification)
 			auth.Post("/login", authHandler.Login)
 		})
 
