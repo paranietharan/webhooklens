@@ -31,7 +31,7 @@ func main() {
 		log.Fatalf("[server] fatal: failed to initialize database: %v", err)
 	}
 	defer pgStore.Close()
-	log.Println("[server] connected to PostgreSQL and verified schema")
+	log.Println("[server] connected to PostgreSQL")
 
 	// Initialize Redis cache and pub/sub
 	redisCache, err := cache.NewRedisCache(ctx, cfg.RedisURL)

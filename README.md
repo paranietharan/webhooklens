@@ -18,6 +18,8 @@ Headless backend API for inspecting, capturing, and debugging incoming webhooks 
 ```
 .
 ├── cmd/
+│   ├── migration/
+│   │   └── main.go                  # Database migrations CLI (up, down, status)
 │   └── server/
 │       └── main.go                  # Application entry point & graceful shutdown
 ├── internal/
@@ -40,7 +42,7 @@ Headless backend API for inspecting, capturing, and debugging incoming webhooks 
 │   ├── store/
 │   │   ├── store.go                 # Database repository interfaces
 │   │   └── postgres/
-│   │       ├── postgres.go          # Database connection pool and schema auto-migration
+│   │       ├── postgres.go          # Database connection pool
 │   │       ├── user_store.go        # User PostgreSQL repository
 │   │       ├── endpoint_store.go    # Webhook endpoint PostgreSQL repository
 │   │       └── webhook_log_store.go # Webhook logs PostgreSQL repository
@@ -61,7 +63,20 @@ Headless backend API for inspecting, capturing, and debugging incoming webhooks 
 docker compose up -d
 ```
 
-### 2. Run the Server
+### 2. Run Database Migrations
+
+```bash
+# Apply all pending migrations
+go run cmd/migration/main.go up
+
+# Check migration status
+go run cmd/migration/main.go status
+
+# Rollback last migration
+go run cmd/migration/main.go down
+```
+
+### 3. Run the Server
 
 ```bash
 go run cmd/server/main.go
