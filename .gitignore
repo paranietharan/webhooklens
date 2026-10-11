@@ -1,0 +1,25 @@
+# Binaries
+/server
+/main
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Environment variables
+.env
+
+# OS metadata
+.DS_Store
+
+# IDEs
+.idea/
+.vscode/
+*.swp
