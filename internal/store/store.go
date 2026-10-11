@@ -42,6 +42,7 @@ type EndpointStore interface {
 	Update(ctx context.Context, endpoint *models.Endpoint) error
 	Delete(ctx context.Context, id string, userID uuid.UUID) error
 	ToggleRequireAuth(ctx context.Context, id string, userID uuid.UUID, requireAuth bool) (*models.Endpoint, error)
+	ToggleActive(ctx context.Context, id string, userID uuid.UUID, isActive *bool) (*models.Endpoint, error)
 	UpdateAuthToken(ctx context.Context, id string, userID uuid.UUID, authToken *string) (*models.Endpoint, error)
 }
 

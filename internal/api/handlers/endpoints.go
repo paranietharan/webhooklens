@@ -55,6 +55,10 @@ type toggleAuthRequest struct {
 	RequireAuth bool `json:"require_auth"`
 }
 
+type toggleActiveRequest struct {
+	IsActive *bool `json:"is_active"`
+}
+
 func (h *EndpointHandler) Create(w http.ResponseWriter, r *http.Request) {
 	userID, ok := middleware.GetUserID(r.Context())
 	if !ok {
@@ -314,6 +318,45 @@ func (h *EndpointHandler) RegenerateToken(w http.ResponseWriter, r *http.Request
 	updated, err := h.store.Endpoints().UpdateAuthToken(r.Context(), endpointID, userID, &newToken)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to update auth token")
+		return
+	}
+
+	_ = h.cache.SetEndpointConfig(r.Context(), updated.ID, updated.ToConfig(), h.cfg.CacheTTL)
+
+	respondJSON(w, http.StatusOK, updated)
+}
+
+func (h *EndpointHandler) ToggleActive(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.GetUserID(r.Context())
+	if !ok {
+		respondError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	endpointID := chi.URLParam(r, "endpoint_id")
+	endpoint, err := h.store.Endpoints().GetByID(r.Context(), endpointID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			respondError(w, http.StatusNotFound, "endpoint not found")
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "failed to retrieve endpoint")
+		return
+	}
+
+	if endpoint.UserID != userID {
+		respondError(w, http.StatusForbidden, "access denied")
+		return
+	}
+
+	var req toggleActiveRequest
+	if r.Body != nil && r.ContentLength > 0 {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+
+	updated, err := h.store.Endpoints().ToggleActive(r.Context(), endpointID, userID, req.IsActive)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to toggle active state")
 		return
 	}
 

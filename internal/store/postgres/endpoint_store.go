@@ -170,6 +170,47 @@ func (s *endpointStore) ToggleRequireAuth(ctx context.Context, id string, userID
 	return &ep, nil
 }
 
+func (s *endpointStore) ToggleActive(ctx context.Context, id string, userID uuid.UUID, isActive *bool) (*models.Endpoint, error) {
+	var query string
+	var args []any
+
+	if isActive != nil {
+		query = `
+			UPDATE endpoints
+			SET is_active = $1
+			WHERE id = $2 AND user_id = $3
+			RETURNING id, user_id, name, require_auth, auth_token, is_active, created_at;
+		`
+		args = []any{*isActive, id, userID}
+	} else {
+		query = `
+			UPDATE endpoints
+			SET is_active = NOT is_active
+			WHERE id = $1 AND user_id = $2
+			RETURNING id, user_id, name, require_auth, auth_token, is_active, created_at;
+		`
+		args = []any{id, userID}
+	}
+
+	var ep models.Endpoint
+	err := s.db.QueryRowContext(ctx, query, args...).Scan(
+		&ep.ID,
+		&ep.UserID,
+		&ep.Name,
+		&ep.RequireAuth,
+		&ep.AuthToken,
+		&ep.IsActive,
+		&ep.CreatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, store.ErrNotFound
+		}
+		return nil, err
+	}
+	return &ep, nil
+}
+
 func (s *endpointStore) UpdateAuthToken(ctx context.Context, id string, userID uuid.UUID, authToken *string) (*models.Endpoint, error) {
 	query := `
 		UPDATE endpoints

@@ -103,6 +103,7 @@ func NewRouter(deps RouterDependencies) http.Handler {
 					item.Delete("/", endpointHandler.Delete)
 
 					item.Post("/toggle-auth", endpointHandler.ToggleAuth)
+					item.Post("/toggle-active", endpointHandler.ToggleActive)
 					item.Post("/regenerate-token", endpointHandler.RegenerateToken)
 
 					item.Get("/logs", endpointHandler.ListLogs)

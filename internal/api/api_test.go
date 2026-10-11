@@ -288,6 +288,37 @@ func TestEndpointManagementAndTokenRegeneration(t *testing.T) {
 	if toggledEndpoint.RequireAuth {
 		t.Fatal("expected require_auth to be false")
 	}
+
+	// Toggle active state to false
+	req = httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/endpoints/%s/toggle-active", createdEndpoint.ID), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("toggle active failed: expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var deactivatedEndpoint models.Endpoint
+	_ = json.Unmarshal(rec.Body.Bytes(), &deactivatedEndpoint)
+	if deactivatedEndpoint.IsActive {
+		t.Fatal("expected is_active to be false after toggle")
+	}
+
+	// Toggle active state back to true
+	toggleActiveBody, _ := json.Marshal(map[string]bool{"is_active": true})
+	req = httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/endpoints/%s/toggle-active", createdEndpoint.ID), bytes.NewReader(toggleActiveBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("toggle active back failed: expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var reactivatedEndpoint models.Endpoint
+	_ = json.Unmarshal(rec.Body.Bytes(), &reactivatedEndpoint)
+	if !reactivatedEndpoint.IsActive {
+		t.Fatal("expected is_active to be true after reactivate")
+	}
 }
 
 func TestWebhookIngestionAndWorkerProcessing(t *testing.T) {
