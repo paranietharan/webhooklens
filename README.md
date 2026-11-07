@@ -110,3 +110,8 @@ go test -v ./...
 | `WORKER_BUFFER_SIZE` | `5000` | Capacity of the buffered webhook ingestion channel |
 | `MAX_REQUEST_BODY_MB` | `5` | Maximum webhook request body size in MB |
 | `ENDPOINT_CACHE_TTL_MINUTES` | `5` | Redis cache TTL for endpoint configurations |
+
+
+## Build and test maintenance
+
+The Docker builder uses Go 1.27.3 and BuildKit target OS/architecture arguments, so amd64 and arm64 builds contain matching binaries. The runtime uses Alpine 3.24. CI applies migrations to disposable PostgreSQL and runs the API integration suite with Redis and Mailpit, plus Linux cross-compilation for both architectures.
