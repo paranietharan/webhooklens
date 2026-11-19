@@ -1,6 +1,6 @@
 # WebHookLens
 
-WebHookLens is a Go backend service for capturing, inspecting, and streaming incoming webhooks in real time. Built with **Go (`chi/v5`)**, **PostgreSQL (`pgx/v5`)**, and **Redis**, it accepts webhook requests with `HTTP 202 Accepted` and processes persistence and live browser notifications in the background.
+WebHookLens is a Go backend service for capturing, inspecting, and streaming incoming webhooks in real time. Built with **Go (`chi/v5`)**, **PostgreSQL (`pgx/v5`)**, and **Redis**, it accepts webhook requests with `HTTP 202 Accepted` after persisting the event and streams live browser notifications asynchronously.
 
 ---
 
@@ -11,21 +11,13 @@ Webhook Sender ──► ANY /w/{endpoint_id}
                         │
                         ├─► 1. Lookup endpoint config in Redis (fallback to PostgreSQL)
                         ├─► 2. Validate active status & optional secret token
-                        ├─► 3. Enqueue payload into buffered goroutine worker pool
-                        └─► 4. Return HTTP 202 Accepted immediately
-                                     │
-                                     ▼ (Background Worker Pool)
-                        ┌─────────────────────────────────────────┐
-                        │ • Save request headers/body in Postgres │
-                        │ • Publish event to Redis Pub/Sub        │
-                        └────────────────────┬────────────────────┘
-                                             │
-                                             ▼
-Connected Browsers ◄── GET /api/endpoints/{endpoint_id}/stream (SSE + 15s keep-alive ping)
+                        ├─► 3. Enqueue redacted event or return 503 when saturated
+                        ├─► 4. Worker writes history to PostgreSQL
+                        └─► 5. Handler returns 202 and worker publishes the live event
 ```
 
 ### Key Implementation Details
-- **Non-Blocking Webhook Ingestion (`internal/api/handlers/ingest.go`)**: Incoming webhooks on `/w/{endpoint_id}` are validated, pushed to an in-memory buffered job queue (`WORKER_BUFFER_SIZE`), and acknowledged with `202 Accepted` so database writes do not block the request path.
+- **Durable Webhook Ingestion (`internal/api/handlers/ingest.go`)**: Incoming webhooks on `/w/{endpoint_id}` are validated, pushed to an in-memory buffered job queue (`WORKER_BUFFER_SIZE`), and acknowledged with `202 Accepted` after the worker confirms the database write.
 - **Worker Pool with Graceful Drain (`internal/worker/dispatcher.go`)**: A configurable pool of worker goroutines (`WORKER_POOL_SIZE`) writes webhook logs to PostgreSQL and publishes events to Redis. On `SIGINT`/`SIGTERM`, the server stops accepting new HTTP requests and drains in-flight jobs before exiting.
 - **Live Server-Sent Events (`internal/api/handlers/stream.go`)**: Clients subscribe to `/api/endpoints/{endpoint_id}/stream` over SSE (`text/event-stream`). The handler subscribes to the endpoint's Redis Pub/Sub channel and sends `: ping` heartbeats every 15 seconds to keep connections open through proxies.
 - **Endpoint Caching (`internal/cache/redis.go`)**: Endpoint configurations and secret tokens are cached in Redis (`ENDPOINT_CACHE_TTL_MINUTES`) with automatic fallback to PostgreSQL on cache misses, and invalidated whenever an endpoint is updated or deleted.
@@ -115,3 +107,5 @@ go test -v ./...
 ## Build and test maintenance
 
 The Docker builder uses Go 1.27.3 and BuildKit target OS/architecture arguments, so amd64 and arm64 builds contain matching binaries. The runtime uses Alpine 3.24. CI applies migrations to disposable PostgreSQL and runs the API integration suite with Redis and Mailpit, plus Linux cross-compilation for both architectures.
+
+A 202 response confirms PostgreSQL persistence. Redis live notifications follow asynchronously. Sensitive headers are redacted in both history and live events. Configure additional comma-separated names with REDACT_HEADERS.
