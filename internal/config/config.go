@@ -3,27 +3,30 @@ package config
 import (
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
 type Config struct {
-	Port              string
-	DatabaseURL       string
-	RedisURL          string
-	JWTSecret         string
-	JWTExpiration     time.Duration
-	WorkerPoolSize    int
-	WorkerBufferSize  int
-	MaxRequestBodyMB  int64
-	CacheTTL          time.Duration
-	SMTPHost          string
-	SMTPPort          int
-	SMTPFrom          string
-	AppBaseURL        string
+	SensitiveHeaders []string
+	Port             string
+	DatabaseURL      string
+	RedisURL         string
+	JWTSecret        string
+	JWTExpiration    time.Duration
+	WorkerPoolSize   int
+	WorkerBufferSize int
+	MaxRequestBodyMB int64
+	CacheTTL         time.Duration
+	SMTPHost         string
+	SMTPPort         int
+	SMTPFrom         string
+	AppBaseURL       string
 }
 
 func Load() *Config {
 	return &Config{
+		SensitiveHeaders: strings.Split(os.Getenv("REDACT_HEADERS"), ","),
 		Port:             getEnv("PORT", "8080"),
 		DatabaseURL:      getEnv("DATABASE_URL", "postgres://webhooklens:webhooklens_secret@localhost:5432/webhooklens?sslmode=disable"),
 		RedisURL:         getEnv("REDIS_URL", "redis://localhost:6379/0"),

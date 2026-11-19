@@ -96,7 +96,7 @@ func (h *IngestionHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Capture metadata
-	headersJSON, _ := json.Marshal(extractHeaders(r.Header))
+	headersJSON, _ := json.Marshal(extractHeaders(r.Header, h.cfg.SensitiveHeaders))
 	queryParamsJSON, _ := json.Marshal(extractQueryParams(r.URL.Query()))
 	clientIP := getClientIP(r)
 	now := time.Now().UTC()
@@ -127,16 +127,27 @@ func (h *IngestionHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Pass payload to asynchronous worker pool
+	stored := make(chan error, 1)
 	enqueued := h.workerPool.Enqueue(&worker.IngestionJob{
-		Log:   webhookLog,
-		Event: webhookEvent,
+		Stored: stored,
+		Log:    webhookLog,
+		Event:  webhookEvent,
 	})
 	if !enqueued {
 		respondError(w, http.StatusServiceUnavailable, "ingestion queue busy, try again later")
 		return
 	}
 
-	// Return 202 Accepted immediately upon successful validation
+	select {
+	case err := <-stored:
+		if err != nil {
+			respondError(w, http.StatusServiceUnavailable, "unable to persist webhook")
+			return
+		}
+	case <-r.Context().Done():
+		return
+	}
+	// A successful response now guarantees the history entry is durable.
 	respondJSON(w, http.StatusAccepted, map[string]any{
 		"status":      "accepted",
 		"id":          logID,
@@ -165,9 +176,17 @@ func (h *IngestionHandler) getEndpointConfig(ctx context.Context, endpointID str
 	return cfg, nil
 }
 
-func extractHeaders(header http.Header) map[string]any {
+func extractHeaders(header http.Header, sensitive []string) map[string]any {
 	result := make(map[string]any, len(header))
+	redact := map[string]bool{"authorization": true, "proxy-authorization": true, "cookie": true, "set-cookie": true, "x-api-key": true}
+	for _, key := range sensitive {
+		redact[strings.ToLower(strings.TrimSpace(key))] = true
+	}
 	for k, v := range header {
+		if redact[strings.ToLower(k)] {
+			result[k] = "[REDACTED]"
+			continue
+		}
 		if len(v) == 1 {
 			result[k] = v[0]
 		} else {
