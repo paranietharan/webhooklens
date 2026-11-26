@@ -12,8 +12,9 @@ import (
 )
 
 type IngestionJob struct {
-	Log   *models.WebhookLog
-	Event *models.WebhookEvent
+	Stored chan<- error
+	Log    *models.WebhookLog
+	Event  *models.WebhookEvent
 }
 
 type Pool struct {
@@ -50,11 +51,10 @@ func (p *Pool) Start() {
 
 func (p *Pool) Enqueue(job *IngestionJob) bool {
 	p.mu.Lock()
+	defer p.mu.Unlock()
 	if p.stopped {
-		p.mu.Unlock()
 		return false
 	}
-	p.mu.Unlock()
 
 	select {
 	case p.jobQueue <- job:
@@ -79,7 +79,9 @@ func (p *Pool) processJob(job *IngestionJob) {
 	defer cancel()
 
 	// Insert webhook log into PostgreSQL
-	if err := p.store.WebhookLogs().Create(ctx, job.Log); err != nil {
+	err := p.store.WebhookLogs().Create(ctx, job.Log)
+	job.Stored <- err
+	if err != nil {
 		log.Printf("[worker] error saving webhook log %s to postgres: %v", job.Log.ID, err)
 		return
 	}
